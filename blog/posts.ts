@@ -92,4 +92,50 @@ And make idle genuinely free. If the cropped image hashes the same as the last f
 
 The meta-lesson is one I keep relearning: the model or the library is rarely the hard part anymore. Recognizing the text took one line. Deciding what to do with a stream of noisy, overlapping, re-appearing recognitions was the actual product. The intelligence lives in the plumbing around the clever bit, not in the clever bit.`,
   },
+  {
+    title: "Shipping a Python Model Server Inside a Java App",
+    date: "Oct 2026",
+    readTime: "5 min read",
+    authors: ["Yashasvi Allen Kujur"],
+    excerpt:
+      "Valorant Narrator is a Java desktop app that also has to run a Python neural TTS model on the user's machine. Gluing those two worlds together was its own small project.",
+    tags: ["Java", "Python", "Packaging", "Dev Story"],
+    content: `The agent voices in Valorant Narrator run on a local neural TTS model. The app itself is Java. So the real question was never which model, it was how do you ship a multi-gigabyte Python model server to a non-technical Windows user and drive it from Java without either half knowing the other exists.
+
+The contract I settled on is deliberately boring. The model lives behind a tiny HTTP server on localhost. The Java app starts the server as a child process, waits for a specific line on its stdout that means ready, then POSTs text and gets back audio. That is the entire interface. Either side can be rewritten as long as that stays true, and in fact the Python engine has been swapped out underneath without the Java side noticing.
+
+The Python side is frozen into a single Windows executable with PyInstaller, so users never touch pip. That immediately creates problems you do not have in development:
+
+First, startup. A onefile build re-extracts the whole model to a temp dir on every launch, which for multi-GB weights is painful. The onedir build unpacks once at install and starts fast, so that is what ships.
+
+Second, a genuinely cursed bug: the frozen exe shipped a numba cache that was zeroed out, and that crashed a dependency's import with an unpickling error, which killed the whole voice server before it could say ready. The fix did not need a re-release of the Python exe at all. The Java launcher wipes and redirects the cache directory via an environment variable before starting the process, so the broken bundled cache is never read. Being able to patch the Python side from the Java side, without rebuilding the Python side, saved a release.
+
+Third, updates. The model exe and the app update on separate tracks. The app reads the exe's Windows file-version, compares it against what the backend advertises, and downloads a replacement if it is behind. Only the launcher exe gets replaced; the giant internal folder stays. So a voice fix can ship without pushing a whole new installer.
+
+And finally, progress and liveness. The Java side reads the Python stdout line by line, matches the loading-progress lines, and shows them in the UI, so the user sees something during the slow model load instead of a frozen window. Timeouts are generous for synthesis but bounded, so a hung model can never wedge the one narration thread forever.
+
+None of this is glamorous. But the lesson held up: when you have to marry two runtimes, make the seam between them as small and as dumb as possible. A process boundary plus an HTTP call on localhost is easy to reason about, easy to swap, and — as the numba fix showed — easy to work around from the other side when one half misbehaves.`,
+  },
+  {
+    title: "Precision Over Recall: Perception for a Game Bot",
+    date: "Oct 2026",
+    readTime: "5 min read",
+    authors: ["Yashasvi Allen Kujur"],
+    excerpt:
+      "I rebuilt my Snake.io bot around one rule: it is better to miss a thing than to hallucinate one. That single bias changed the whole design.",
+    tags: ["Computer Vision", "Automation", "Python", "Dev Story"],
+    content: `My first attempt at a Snake.io bot drove off per-frame heuristics: look at this frame, guess where the food and the enemies are, steer. It was unreliable in a way I could not debug, because the mistakes were never in the steering. They were in what it thought it was looking at.
+
+So I threw out the steering and rebuilt the perception layer alone, around one bias: precision over recall. A detection the bot reports should almost always be real, even if that means it reports fewer of them. A bot that occasionally misses a food orb is fine. A bot that hallucinates an enemy that is not there will juke into a wall for no reason, and you will never figure out why from the steering code.
+
+Two ideas did most of the work.
+
+The first is that the camera is locked to your own snake, so the entire world scrolls past at your own speed every frame. If you estimate that global scroll and subtract it, then anything still moving is moving in the world, which means it is a live enemy. Static loot stops reading as a threat the moment you cancel out your own motion. That one subtraction removed a whole category of false enemies.
+
+The second is making perception explicit and typed instead of a soup of pixels. Every frame becomes a small scene with named categories: self, enemy with a head and a world-relative velocity, border, food, loot. Each detection carries a confidence. Food versus loot is just density: sparse round blobs are food, dense clusters are loot, and loot is never an enemy.
+
+The part I am most glad I built is the one that is not in the bot at all: a validation harness. It serves a little review UI that lets me rate each class on each frame and computes live per-class precision. The classifier does not get to drive until its numbers clear a bar. That turned perception from a vibe into something I could actually certify before trusting it.
+
+The transferable lesson is about where to put your skepticism. In a control system, a confident wrong input is far more dangerous than a missing one, because everything downstream trusts it. Bias your perception toward silence over confident nonsense, make it say how sure it is, and measure that before you let anything act on it.`,
+  },
 ];
